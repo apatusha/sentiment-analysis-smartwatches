@@ -1,0 +1,252 @@
+import sqlite3
+import json
+import re
+import time
+from datetime import datetime
+from bs4 import BeautifulSoup
+from selenium import webdriver
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import matplotlib.dates as mdates
+from mastodon import Mastodon
+
+# Global database paths
+AMAZON_DB_PATH = "amazon_reviews.db"
+SENTIMENT_DB_PATH = "sentiment.db"
+
+# ----------------- Step 1: Collect Data from Mastodon -----------------
+def fetch_mastodon_data():
+    mastodon = Mastodon(
+        access_token="gT9H9Q6JexEx0FtGgt53tWBQR60Z3RqvZmQAYf2qJm4",
+        api_base_url="https://mastodon.social"
+    )
+
+    with open('terms.json', 'r') as file:
+        data = json.load(file)
+        search_terms = data['terms']
+
+    conn = sqlite3.connect(SENTIMENT_DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS data (
+        SID INTEGER PRIMARY KEY AUTOINCREMENT,
+        Product TEXT,
+        User TEXT,
+        Date TEXT,
+        Message TEXT,
+        Sentiment TEXT
+    )
+    ''')
+    conn.commit()
+
+    def clean_message(message):
+        soup = BeautifulSoup(message, 'html.parser')
+        text = soup.get_text()
+        text = re.sub(r'http\S+', '', text)
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip()
+
+    for term in search_terms:
+        print(f"Searching for {term}")
+        results = mastodon.timeline_hashtag(term, limit=50)
+
+        if not results:
+            print(f"No results found for {term}")
+            continue
+
+        for status in results:
+            user = status['account']['username']
+            date = status["created_at"]
+            raw_message = status['content']
+            message = clean_message(raw_message)
+
+            if not message:
+                print("Empty message, skipping...")
+                continue        
+
+            cursor.execute('''
+            INSERT INTO data (Product, User, Date, Message, Sentiment)
+            VALUES (?, ?, ?, ?, ?)
+            ''', (term, user, date, message, None))
+
+    conn.commit()
+    conn.close()
+    print("Mastodon data collection completed.")
+
+
+# ----------------- Step 2: Scrape Amazon Reviews -----------------
+def scrape_amazon_reviews():
+    product_data = []
+    with open('terms.txt', 'r') as file:
+        for line in file:
+            line = line.strip()
+            if not line or ',' not in line:
+                continue
+            try:
+                product, url = line.split(',', 1)
+                product_data.append((product.strip(), url.strip()))
+            except ValueError:
+                continue
+
+    driver = webdriver.Chrome()
+    conn = sqlite3.connect(AMAZON_DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS reviews (
+            SID INTEGER PRIMARY KEY AUTOINCREMENT,
+            product TEXT,
+            user TEXT,
+            date TEXT,
+            message TEXT,
+            sentiment TEXT DEFAULT ''
+        )
+    ''')
+
+    def extract_date(raw_date):
+        return raw_date.split("on")[1].strip() if "on" in raw_date else raw_date.strip()
+
+    for product_name, url in product_data:
+        while url:
+            driver.get(url)
+            time.sleep(3)
+
+            html_data = BeautifulSoup(driver.page_source, 'html.parser')
+            reviews = html_data.find_all('li', {'data-hook': 'review'})
+
+            for review in reviews:
+                user = review.find('span', {'class': 'a-profile-name'}).text.strip()
+                raw_date = review.find('span', {'data-hook': 'review-date'}).text.strip()
+                message = review.find('span', {'data-hook': 'review-body'}).text.strip()
+                date = extract_date(raw_date)
+
+                cursor.execute('''
+                    INSERT INTO reviews (product, user, date, message) VALUES (?, ?, ?, ?)
+                ''', (product_name, user, date, message))
+
+            url_check = html_data.find('li', {'class': 'a-last'})
+            url = 'https://www.amazon.com' + url_check.a['href'] if url_check and 'a-disabled' not in url_check.get('class', []) else None
+
+    conn.commit()
+    conn.close()
+    driver.quit()
+    print("Amazon reviews scraping completed.")
+
+
+# ----------------- Step 3: Perform Sentiment Analysis -----------------
+def analyze_sentiment(db_path, table_name, text_column, id_column, sentiment_column):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    cursor.execute(f"SELECT {id_column}, {text_column} FROM {table_name}")
+    rows = cursor.fetchall()
+    
+    analyzer = SentimentIntensityAnalyzer()
+
+    for sid, message in rows:
+        sentiment_scores = analyzer.polarity_scores(message)
+        compound_score = sentiment_scores['compound']
+        pos_score = sentiment_scores['pos']
+        neg_score = sentiment_scores['neg']
+        neu_score = sentiment_scores['neu']
+
+        if compound_score > 0.7 and pos_score > 0.3:
+            sentiment = 'Strong Positive'
+        elif compound_score > 0.2 and pos_score > neg_score:
+            sentiment = 'Positive'
+        elif -0.2 <= compound_score <= 0.2 and neu_score >= 0.6:
+            sentiment = 'Neutral'
+        elif -0.5 < compound_score < -0.2 and neg_score > pos_score:
+            sentiment = 'Negative'
+        else:
+            sentiment = 'Strong Negative'
+
+        cursor.execute(f"UPDATE {table_name} SET {sentiment_column} = ? WHERE {id_column} = ?", (sentiment, sid))
+
+    conn.commit()
+    conn.close()
+    print(f"Sentiment analysis completed for {db_path}.")
+
+
+# ----------------- Step 4: Convert Dates -----------------
+def convert_dates(db_path, table_name, date_column, new_column):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {new_column} DATE")
+    except sqlite3.OperationalError:
+        print(f"Column '{new_column}' already exists.")
+
+    cursor.execute(f"SELECT {id_column}, {date_column} FROM {table_name}")
+    rows = cursor.fetchall()
+
+    for row in rows:
+        row_id, original_date = row
+        try:
+            parsed_date = datetime.fromisoformat(original_date.replace("Z", "+00:00"))
+            new_date = parsed_date.strftime("%Y-%m-%d")
+            cursor.execute(f"UPDATE {table_name} SET {new_column} = ? WHERE {id_column} = ?", (new_date, row_id))
+        except ValueError:
+            continue
+
+    conn.commit()
+    conn.close()
+    print(f"Date conversion completed for {db_path}.")
+
+
+# ----------------- Step 5: Visualizations -----------------
+def visualize_sentiment(db_path, table_name, sentiment_column, date_column):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    cursor.execute(f"SELECT {sentiment_column}, {date_column} FROM {table_name}")
+    rows = cursor.fetchall()
+
+    df = pd.DataFrame(rows, columns=[sentiment_column, date_column])
+    df[date_column] = pd.to_datetime(df[date_column])
+
+    sentiment_counts = df[sentiment_column].value_counts().sort_index()
+
+    # Plot sentiment distribution
+    plt.figure(figsize=(8, 5))
+    sns.countplot(data=df, x=sentiment_column, order=sentiment_counts.index)
+    plt.title('Sentiment Distribution')
+    plt.xlabel('Sentiment')
+    plt.ylabel('Count')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+    # Plot sentiment over time
+    df['month'] = df[date_column].dt.to_period('M')
+    sentiment_by_month = df.groupby(['month', sentiment_column]).size().unstack(fill_value=0)
+
+    sentiment_by_month.plot(kind='bar', stacked=True, figsize=(10, 6))
+    plt.title('Sentiment Over Time')
+    plt.xlabel('Month')
+    plt.ylabel('Number of Posts')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+    conn.close()
+    print("Sentiment visualization completed.")
+
+
+# ----------------- Step 6: Run Everything -----------------
+def main():
+    fetch_mastodon_data()
+    scrape_amazon_reviews()
+    analyze_sentiment(AMAZON_DB_PATH, "reviews", "message", "SID", "sentiment")
+    analyze_sentiment(SENTIMENT_DB_PATH, "data", "Message", "SID", "Sentiment")
+    convert_dates(AMAZON_DB_PATH, "reviews", "date", "dateconverted")
+    convert_dates(SENTIMENT_DB_PATH, "data", "Date", "dateconverted")
+    visualize_sentiment(AMAZON_DB_PATH, "reviews", "sentiment", "dateconverted")
+    visualize_sentiment(SENTIMENT_DB_PATH, "data", "Sentiment", "dateconverted")
+
+if __name__ == "__main__":
+    main()
