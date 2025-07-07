@@ -50,7 +50,7 @@ The following Python libraries are required to run the project:
 `python-magic-bin`, `requests`, `seaborn`, `selenium`, `six`,  
 `soupsieve`, `urllib3`, `vaderSentiment`
 
-## ✅ Results
+## Results
 
 This project successfully implemented a sentiment analysis pipeline to evaluate public perception of various smartwatch products based on data from Amazon and Mastodon.
 
