@@ -1,0 +1,6 @@
+Samsung Galaxy Watch 7,https://www.amazon.com/SAMSUNG-Galaxy-Bluetooth-Smartwatch-Manufacturer/product-reviews/B0D1YQKDML/ref=cm_cr_getr_d_paging_btm_prev_1?ie=UTF8&reviewerType=all_reviews&pageNumber=1
+Xiaomi Smart Band 9,https://www.amazon.com/Xiaomi-Version-Display-Battery-Resistant/product-reviews/B0D8WQ94W5/ref=cm_cr_getr_d_paging_btm_prev_1?ie=UTF8&reviewerType=all_reviews&pageNumber=1
+Google Pixel Watch 3,https://www.amazon.com/Google-Pixel-Watch-Latest-Model/product-reviews/B0D91424WX/ref=cm_cr_getr_d_paging_btm_prev_1?ie=UTF8&reviewerType=all_reviews&pageNumber=1
+Huawei Watch GT 4,https://www.amazon.com/HUAWEI-Bluetooth-Smartwatch-AMOLED-Fluoroelastomer/product-reviews/B0CGTNL7MZ/ref=cm_cr_getr_d_paging_btm_prev_1?ie=UTF8&reviewerType=all_reviews&pageNumber=1
+Samsung Galaxy Fit 3,https://www.amazon.com/SAMSUNG-Display-Watchfaces-Exercise-International/product-reviews/B0CW3VWC3X/ref=cm_cr_getr_d_paging_btm_prev_1?ie=UTF8&reviewerType=all_reviews&pageNumber=1 
+
