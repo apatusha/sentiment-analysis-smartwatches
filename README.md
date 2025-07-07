@@ -7,6 +7,9 @@ This project was developed as part of the course **"Data Analysis and Visualisat
 
 We built a full sentiment analysis pipeline in Python to collect, process, classify, and visualize user opinions about smartwatch products, using **Amazon customer reviews** and **Mastodon posts**.
 
+Date of completion: February 3, 2025
+
+
 The project includes:
 - Custom scraping logic for Amazon (via Selenium)
 - API-based extraction from Mastodon
